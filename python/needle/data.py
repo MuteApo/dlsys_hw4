@@ -24,10 +24,9 @@ class RandomFlipHorizontal(Transform):
             H x W x C ndarray corresponding to image flipped with probability self.p
         Note: use the provided code to provide randomness, for easier testing
         """
+
         flip_img = np.random.rand() < self.p
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        return img[:, ::-1, :] if flip_img else img
 
 
 class RandomCrop(Transform):
@@ -42,12 +41,15 @@ class RandomCrop(Transform):
             H x W x C NAArray of cliped image
         Note: generate the image shifted by shift_x, shift_y specified below
         """
+
         shift_x, shift_y = np.random.randint(
             low=-self.padding, high=self.padding + 1, size=2
         )
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        h, w, c = img.shape
+        out = np.zeros((h + self.padding * 2, w + self.padding * 2, c))
+        out[self.padding:h + self.padding, self.padding:w + self.padding, :] = img[:, :, :]
+        h0, w0 = self.padding + shift_x, self.padding + shift_y
+        return out[h0:h0 + h, w0:w0 + w, :]
 
 
 class Dataset:
@@ -94,6 +96,8 @@ class DataLoader:
         dataset: Dataset,
         batch_size: Optional[int] = 1,
         shuffle: bool = False,
+        device=None,
+        dtype="float32"
     ):
 
         self.dataset = dataset
@@ -103,17 +107,27 @@ class DataLoader:
             self.ordering = np.array_split(
                 np.arange(len(dataset)), range(batch_size, len(dataset), batch_size)
             )
+        self.device = device
+        self.dtype = dtype
 
     def __iter__(self):
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        self.batch_id = 0
+        if self.shuffle:
+            indices = list(range(len(self.dataset)))
+            np.random.shuffle(indices)
+            batches = range(self.batch_size, len(self.dataset), self.batch_size)
+            self.ordering = np.array_split(indices, batches)
         return self
 
     def __next__(self):
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        if self.batch_id >= len(self.ordering):
+            raise StopIteration
+        mini_batch = []
+        for i in range(len(self.dataset[0])):
+            item = [self.dataset[_][i] for _ in self.ordering[self.batch_id]]
+            mini_batch.append(Tensor(item, device=self.device, dtype=self.dtype))
+        self.batch_id += 1
+        return mini_batch
 
 
 class MNISTDataset(Dataset):
@@ -155,26 +169,47 @@ class CIFAR10Dataset(Dataset):
         X - numpy array of images
         y - numpy array of labels
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        self.base_folder = base_folder
+        self.is_train = train
+        self.prob = p
+        self.transforms = transforms
+        self.images = []
+        self.labels = []
+        if train:
+            for i in range(1, 6):
+                data_dict = self.unpickle('/'.join([base_folder, f"data_batch_{i}"]))
+                self.images.append(data_dict[b'data'])
+                self.labels.append(data_dict[b'labels'])
+        else:
+            data_dict = self.unpickle('/'.join([base_folder, "test_batch"]))
+            self.images.append(data_dict[b'data'])
+            self.labels.append(data_dict[b'labels'])
+        self.images = np.vstack(self.images).astype(np.float32) / 255
+        self.labels = np.hstack(self.labels)
 
     def __getitem__(self, index) -> object:
         """
         Returns the image, label at given index
         Image should be of shape (3, 32, 32)
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        if isinstance(self.labels[index], Iterable):
+            img = self.images[index].reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+            img = np.array([self.apply_transforms(_).transpose(0, 3, 1, 2) for _ in img])
+        else:
+            img = self.images[index].reshape(3, 32, 32).transpose(1, 2, 0)
+            img = self.apply_transforms(img).transpose(2, 0, 1)
+        return img, self.labels[index]
 
     def __len__(self) -> int:
         """
         Returns the total number of examples in the dataset
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        return self.images.shape[0]
+
+    def unpickle(self, file_dir):
+        with open(file_dir, 'rb') as f:
+            data_dict = pickle.load(f, encoding="bytes")
+        return data_dict
 
 
 class NDArrayDataset(Dataset):
@@ -186,10 +221,6 @@ class NDArrayDataset(Dataset):
 
     def __getitem__(self, i) -> object:
         return tuple([a[i] for a in self.arrays])
-
-
-
-
 
 
 class Dictionary(object):
@@ -223,7 +254,6 @@ class Dictionary(object):
         ### BEGIN YOUR SOLUTION
         raise NotImplementedError()
         ### END YOUR SOLUTION
-
 
 
 class Corpus(object):

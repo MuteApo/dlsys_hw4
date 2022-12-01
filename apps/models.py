@@ -7,17 +7,47 @@ import numpy as np
 np.random.seed(0)
 
 
-class ResNet9(ndl.nn.Module):
+class ResNet9(nn.Module):
     def __init__(self, device=None, dtype="float32"):
         super().__init__()
-        ### BEGIN YOUR SOLUTION ###
-        raise NotImplementedError() ###
-        ### END YOUR SOLUTION
+        self.model = nn.Sequential(
+            ConvBN(3, 16, 7, 4, device=device, dtype=dtype),
+            ConvBN(16, 32, 3, 2, device=device, dtype=dtype),
+            nn.Residual(
+                nn.Sequential(
+                    ConvBN(32, 32, 3, 1, device=device, dtype=dtype),
+                    ConvBN(32, 32, 3, 1, device=device, dtype=dtype)
+                )
+            ),
+            ConvBN(32, 64, 3, 2, device=device, dtype=dtype),
+            ConvBN(64, 128, 3, 2, device=device, dtype=dtype),
+            nn.Residual(
+                ndl.nn.Sequential(
+                    ConvBN(128, 128, 3, 1, device=device, dtype=dtype),
+                    ConvBN(128, 128, 3, 1, device=device, dtype=dtype)
+                )
+            ),
+            nn.Flatten(),
+            nn.Linear(128, 128, device=device, dtype=dtype),
+            nn.ReLU(),
+            nn.Linear(128, 10, device=device, dtype=dtype)
+        )
 
     def forward(self, x):
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        return self.model(x)
+
+
+class ConvBN(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, device=None, dtype="float32"):
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Conv(in_channels, out_channels, kernel_size, stride, device=device, dtype=dtype),
+            nn.BatchNorm2d(out_channels, device=device, dtype=dtype),
+            nn.ReLU()
+        )
+
+    def forward(self, x):
+        return self.model(x)
 
 
 class LanguageModel(nn.Module):
@@ -62,4 +92,4 @@ if __name__ == "__main__":
     model(x)
     cifar10_train_dataset = ndl.data.CIFAR10Dataset("data/cifar-10-batches-py", train=True)
     train_loader = ndl.data.DataLoader(cifar10_train_dataset, 128, ndl.cpu(), dtype="float32")
-    print(dataset[1][0].shape)
+    print(cifar10_train_dataset[1][0].shape)

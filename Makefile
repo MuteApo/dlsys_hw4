@@ -4,13 +4,15 @@ all: lib
 
 
 lib:
-	@mkdir -p build
-	@cd build; cmake ..
-	@cd build; $(MAKE)
+	@if not exist build mkdir build
+	@cd build && cmake ..
+	@cd build && $(MAKE)
 
 format:
 	python3 -m black .
 	clang-format -i src/*.cc src/*.cu
 
 clean:
-	rm -rf build python/needle/backend_ndarray/ndarray_backend*.so
+	@rmdir /s /q build
+	@cd python/needle/backend_ndarray
+	@del /q ndarray_backend*.pyd ndarray_backend*.manifest

@@ -28,9 +28,27 @@ def epoch_general_cifar10(dataloader, model, loss_fn=nn.SoftmaxLoss(), opt=None)
         avg_loss: average loss over dataset
     """
     np.random.seed(4)
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+
+    model.train()
+    if opt is None:
+        model.eval()
+
+    total_acc = total_loss = 0
+    for _, (X, y) in enumerate(dataloader):
+        pred = model(X)
+        total_acc += np.sum(pred.numpy().argmax(1) == y.numpy())
+
+        loss = loss_fn(pred, y)
+        total_loss += loss.numpy() * y.shape[0]
+
+        if opt is not None:
+            loss.backward()
+            opt.step()
+            opt.reset_grad()
+
+    avg_acc = total_acc / len(dataloader.dataset)
+    avg_loss = total_loss / len(dataloader.dataset)
+    return avg_acc, avg_loss
 
 
 def train_cifar10(model, dataloader, n_epochs=1, optimizer=ndl.optim.Adam,
@@ -52,9 +70,14 @@ def train_cifar10(model, dataloader, n_epochs=1, optimizer=ndl.optim.Adam,
         avg_loss: average loss over dataset from last epoch of training
     """
     np.random.seed(4)
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+
+    opt = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    for i in range(n_epochs):
+        avg_acc, avg_loss = epoch_general_cifar10(dataloader, model, loss_fn(), opt)
+        print(f"epoch_{i}: train_acc={avg_acc}\ttrain_loss={avg_loss}")
+
+    return avg_acc, avg_loss
 
 
 def evaluate_cifar10(model, dataloader, loss_fn=nn.SoftmaxLoss):
@@ -71,10 +94,11 @@ def evaluate_cifar10(model, dataloader, loss_fn=nn.SoftmaxLoss):
         avg_loss: average loss over dataset
     """
     np.random.seed(4)
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
 
+    avg_acc, avg_loss = epoch_general_cifar10(dataloader, model, loss_fn())
+    print(f"eval_acc={avg_acc}\teval_loss={avg_loss}")
+
+    return avg_acc, avg_loss
 
 
 ### PTB training ###

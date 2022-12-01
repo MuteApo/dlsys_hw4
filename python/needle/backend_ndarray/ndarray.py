@@ -5,9 +5,14 @@ import numpy as np
 from . import ndarray_backend_numpy
 from . import ndarray_backend_cpu
 
+
 # math.prod not in Python 3.7
 def prod(x):
     return reduce(operator.mul, x, 1)
+
+
+def sum(x):
+    return reduce(operator.add, x, 0)
 
 
 class BackendDevice:
@@ -202,8 +207,7 @@ class NDArray:
         """Return true if array is compact in memory and internal size equals product
         of the shape dimensions"""
         return (
-            self._strides == self.compact_strides(self._shape)
-            and prod(self.shape) == self._handle.size
+            self._strides == self.compact_strides(self._shape) and prod(self.shape) == self._handle.size
         )
 
     def compact(self):
@@ -245,9 +249,13 @@ class NDArray:
             NDArray : reshaped array; this will point to thep
         """
 
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        if self.size != prod(new_shape):
+            raise ValueError(f"reshape shape {new_shape} {self.shape} mismatch")
+
+        new_strides = tuple(prod(new_shape[i + 1:]) for i in range(len(new_shape)))
+        return NDArray.make(
+            new_shape, new_strides, self.device, self.compact()._handle, 0
+        )
 
     def permute(self, new_axes):
         """
@@ -270,9 +278,11 @@ class NDArray:
             strides changed).
         """
 
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        new_shape = tuple(self.shape[i] for i in new_axes)
+        new_strides = tuple(self.strides[i] for i in new_axes)
+        return NDArray.make(
+            new_shape, new_strides, self.device, self._handle, 0
+        )
 
     def broadcast_to(self, new_shape):
         """
@@ -293,24 +303,33 @@ class NDArray:
             NDArray: the new NDArray object with the new broadcast shape; should
             point to the same memory as the original array.
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+
+        dims = []
+        for i in range(self.ndim):
+            if self.shape[i] == 1:
+                dims += [i]
+            elif new_shape[i] != self.shape[i]:
+                raise AssertionError(f"broadcast_to shape {new_shape} {self.shape} mismatch")
+
+        new_strides = tuple(0 if i in dims else x for i, x in enumerate(self.strides))
+        return NDArray.make(
+            new_shape, new_strides, self.device, self._handle, 0
+        )
 
     ### Get and set elements
 
     def process_slice(self, sl, dim):
         """ Convert a slice to an explicit start/stop/step """
         start, stop, step = sl.start, sl.stop, sl.step
-        if start == None:
+        if start is None:
             start = 0
         if start < 0:
             start = self.shape[dim]
-        if stop == None:
+        if stop is None:
             stop = self.shape[dim]
         if stop < 0:
             stop = self.shape[dim] + stop
-        if step == None:
+        if step is None:
             step = 1
 
         # we're not gonna handle negative strides and that kind of thing
@@ -360,9 +379,12 @@ class NDArray:
         )
         assert len(idxs) == self.ndim, "Need indexes equal to number of dimensions"
 
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        new_shape = tuple((s.stop - s.start - 1) // s.step + 1 for s in idxs)
+        new_strides = tuple(self.strides[i] * s.step for i, s in enumerate(idxs))
+        new_offset = sum(s.start * self.strides[i] for i, s in enumerate(idxs))
+        return NDArray.make(
+            new_shape, new_strides, self.device, self._handle, new_offset
+        )
 
     def __setitem__(self, idxs, other):
         """Set the values of a view into an array, using the same semantics
@@ -493,8 +515,8 @@ class NDArray:
         the GPU version will just work natively by tiling any input size).
         """
 
-        assert self.ndim == 2 and other.ndim == 2
-        assert self.shape[1] == other.shape[0]
+        assert self.ndim == 2 and other.ndim == 2, f"matmul ndim {self.ndim} {other.ndim} mismatch"
+        assert self.shape[1] == other.shape[0], f"matmul shape {self.shape} {other.shape} mismatch"
 
         m, n, p = self.shape[0], self.shape[1], other.shape[1]
 
@@ -537,8 +559,6 @@ class NDArray:
         if axis is None:
             view = self.compact().reshape((1,) * (self.ndim - 1) + (prod(self.shape),))
             out = NDArray.make((1,) * (self.ndim if keepdims else 1), device=self.device)
-
-
         else:
             if isinstance(axis, (tuple, list)):
                 assert len(axis) == 1, "Only support reduction over a single axis"
@@ -565,16 +585,16 @@ class NDArray:
         self.device.reduce_max(view.compact()._handle, out._handle, view.shape[-1])
         return out
 
-
     def flip(self, axes):
         """
         Flip this ndarray along the specified axes.
         Note: compact() before returning.
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
-
+        new_strides = tuple(-x if i in axes else x for i, x in enumerate(self.strides))
+        new_offset = sum([x * (self.shape[i] - 1) for i, x in enumerate(self.strides) if i in axes])
+        return NDArray.make(
+            self.shape, new_strides, self.device, self._handle, new_offset
+        ).compact()
 
     def pad(self, axes):
         """
@@ -582,10 +602,11 @@ class NDArray:
         which lists for _all_ axes the left and right padding amount, e.g.,
         axes = ( (0, 0), (1, 1), (0, 0)) pads the middle axis with a 0 on the left and right side.
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
-
+        shape = tuple(self.shape[i] + sum(x) for i, x in enumerate(axes))
+        pos = tuple(slice(x[0], x[0] + self.shape[i]) for i, x in enumerate(axes))
+        out = full(shape, 0, dtype=self.dtype, device=self.device)
+        out[pos] = self
+        return out
 
 
 def array(a, dtype="float32", device=None):
@@ -627,6 +648,7 @@ def exp(a):
 
 def tanh(a):
     return a.tanh()
+
 
 def flip(a, axes):
     return a.flip(axes)

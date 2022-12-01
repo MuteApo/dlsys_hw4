@@ -2,6 +2,7 @@
 import needle as ndl
 import numpy as np
 
+
 class Optimizer:
     def __init__(self, params):
         self.params = params
@@ -60,6 +61,13 @@ class Adam(Optimizer):
         self.v = {}
 
     def step(self):
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        self.t += 1
+        for param in self.params:
+            grad = ndl.Tensor(param.grad + self.weight_decay * param.data, dtype=param.dtype)
+            m_next = (self.beta1 * self.m.get(param, 0) + (1 - self.beta1) * grad).detach()
+            v_next = (self.beta2 * self.v.get(param, 0) + (1 - self.beta2) * grad**2).detach()
+            self.m[param] = m_next
+            self.v[param] = v_next
+            m_next = (m_next / (1 - self.beta1**self.t)).detach()
+            v_next = (v_next / (1 - self.beta2**self.t)).detach()
+            param.data = param - self.lr * m_next / (v_next**0.5 + self.eps)
