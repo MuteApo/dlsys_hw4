@@ -47,9 +47,10 @@ class RandomCrop(Transform):
         )
         h, w, c = img.shape
         out = np.zeros((h + self.padding * 2, w + self.padding * 2, c))
-        out[self.padding:h + self.padding, self.padding:w + self.padding, :] = img[:, :, :]
-        h0, w0 = self.padding + shift_x, self.padding + shift_y
-        return out[h0:h0 + h, w0:w0 + w, :]
+        h0, w0 = (self.padding,) * 2
+        out[h0 : h0 + h, w0 : w0 + w, :] = img[:, :, :]
+        h0, w0 = (self.padding + shift_x, self.padding + shift_y)
+        return out[h0 : h0 + h, w0 : w0 + w, :]
 
 
 class Dataset:
@@ -97,7 +98,7 @@ class DataLoader:
         batch_size: Optional[int] = 1,
         shuffle: bool = False,
         device=None,
-        dtype="float32"
+        dtype="float32",
     ):
 
         self.dataset = dataset
@@ -122,12 +123,12 @@ class DataLoader:
     def __next__(self):
         if self.batch_id >= len(self.ordering):
             raise StopIteration
-        mini_batch = []
-        for i in range(len(self.dataset[0])):
-            item = [self.dataset[_][i] for _ in self.ordering[self.batch_id]]
-            mini_batch.append(Tensor(item, device=self.device, dtype=self.dtype))
+        X, y = self.dataset[self.ordering[self.batch_id]]
         self.batch_id += 1
-        return mini_batch
+        return (
+            Tensor(X, device=self.device, dtype=self.dtype),
+            Tensor(y, device=self.device, dtype=self.dtype),
+        )
 
 
 class MNISTDataset(Dataset):
@@ -158,7 +159,7 @@ class CIFAR10Dataset(Dataset):
         base_folder: str,
         train: bool,
         p: Optional[int] = 0.5,
-        transforms: Optional[List] = None
+        transforms: Optional[List] = None,
     ):
         """
         Parameters:
@@ -177,13 +178,13 @@ class CIFAR10Dataset(Dataset):
         self.labels = []
         if train:
             for i in range(1, 6):
-                data_dict = self.unpickle('/'.join([base_folder, f"data_batch_{i}"]))
-                self.images.append(data_dict[b'data'])
-                self.labels.append(data_dict[b'labels'])
+                data_dict = self.unpickle("/".join([base_folder, f"data_batch_{i}"]))
+                self.images.append(data_dict[b"data"])
+                self.labels.append(data_dict[b"labels"])
         else:
-            data_dict = self.unpickle('/'.join([base_folder, "test_batch"]))
-            self.images.append(data_dict[b'data'])
-            self.labels.append(data_dict[b'labels'])
+            data_dict = self.unpickle("/".join([base_folder, "test_batch"]))
+            self.images.append(data_dict[b"data"])
+            self.labels.append(data_dict[b"labels"])
         self.images = np.vstack(self.images).astype(np.float32) / 255
         self.labels = np.hstack(self.labels)
 
@@ -192,9 +193,14 @@ class CIFAR10Dataset(Dataset):
         Returns the image, label at given index
         Image should be of shape (3, 32, 32)
         """
-        if isinstance(self.labels[index], Iterable):
+        if isinstance(index, Iterable):
             img = self.images[index].reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
-            img = np.array([self.apply_transforms(_).transpose(0, 3, 1, 2) for _ in img])
+            img = np.vstack(
+                [
+                    self.apply_transforms(_).transpose(0, 3, 1, 2)
+                    for _ in np.vsplit(img, img.shape[0])
+                ]
+            )
         else:
             img = self.images[index].reshape(3, 32, 32).transpose(1, 2, 0)
             img = self.apply_transforms(img).transpose(2, 0, 1)
@@ -207,7 +213,7 @@ class CIFAR10Dataset(Dataset):
         return self.images.shape[0]
 
     def unpickle(self, file_dir):
-        with open(file_dir, 'rb') as f:
+        with open(file_dir, "rb") as f:
             data_dict = pickle.load(f, encoding="bytes")
         return data_dict
 
@@ -232,6 +238,7 @@ class Dictionary(object):
     idx2word: list of words in the dictionary, in the order they were added
         to the dictionary (i.e. each word only appears once in this list)
     """
+
     def __init__(self):
         self.word2idx = {}
         self.idx2word = []
@@ -243,27 +250,27 @@ class Dictionary(object):
         and appends to the list of words.
         Returns the word's unique ID.
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        if word not in self.word2idx:
+            self.word2idx[word] = len(self.idx2word)
+            self.idx2word += [word]
+        return self.word2idx[word]
 
     def __len__(self):
         """
         Returns the number of unique words in the dictionary.
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        return len(self.idx2word)
 
 
 class Corpus(object):
     """
     Creates corpus from train, and test txt files.
     """
+
     def __init__(self, base_dir, max_lines=None):
         self.dictionary = Dictionary()
-        self.train = self.tokenize(os.path.join(base_dir, 'train.txt'), max_lines)
-        self.test = self.tokenize(os.path.join(base_dir, 'test.txt'), max_lines)
+        self.train = self.tokenize(os.path.join(base_dir, "train.txt"), max_lines)
+        self.test = self.tokenize(os.path.join(base_dir, "test.txt"), max_lines)
 
     def tokenize(self, path, max_lines=None):
         """
@@ -277,9 +284,17 @@ class Corpus(object):
         Output:
         ids: List of ids
         """
-        ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
-        ### END YOUR SOLUTION
+        ids = []
+        with open(path, "r") as f:
+            lines = f.readlines()
+            if max_lines is not None:
+                lines = lines[: max_lines + 1]
+            for line in lines:
+                ids += [
+                    self.dictionary.add_word(x)
+                    for x in line.replace("\n", "<eos>").split()
+                ]
+        return ids
 
 
 def batchify(data, batch_size, device, dtype):
@@ -298,9 +313,9 @@ def batchify(data, batch_size, device, dtype):
     If the data cannot be evenly divided by the batch size, trim off the remainder.
     Returns the data as a numpy array of shape (nbatch, batch_size).
     """
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+    n_batch = len(data) // batch_size
+    matrix = np.array(data[: n_batch * batch_size], dtype=dtype)
+    return matrix.reshape(batch_size, n_batch).transpose()
 
 
 def get_batch(batches, i, bptt, device=None, dtype=None):
@@ -322,6 +337,8 @@ def get_batch(batches, i, bptt, device=None, dtype=None):
     data - Tensor of shape (bptt, bs) with cached data as NDArray
     target - Tensor of shape (bptt*bs,) with cached data as NDArray
     """
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+    n_batch, batch_size = batches.shape
+    seq_len = min(bptt, n_batch - i - 1)
+    data = Tensor(batches[i : i + seq_len], device=device, dtype=dtype)
+    target = Tensor(batches[i + 1 : i + seq_len + 1], device=device, dtype=dtype)
+    return data, target.reshape((seq_len * batch_size,))

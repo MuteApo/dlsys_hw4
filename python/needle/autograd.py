@@ -56,7 +56,7 @@ class Op:
         raise NotImplementedError()
 
     def gradient_as_tuple(self, out_grad: "Value", node: "Value") -> Tuple["Value"]:
-        """ Convenience method to always return a tuple from gradient call"""
+        """Convenience method to always return a tuple from gradient call"""
         output = self.gradient(out_grad, node)
         if isinstance(output, tuple):
             return output
@@ -67,7 +67,7 @@ class Op:
 
 
 class TensorOp(Op):
-    """ Op class specialized to output tensors, will be alterate subclasses for other structures """
+    """Op class specialized to output tensors, will be alterate subclasses for other structures"""
 
     def __call__(self, *args):
         return Tensor.make_from_op(self, args)
@@ -117,7 +117,7 @@ class Value:
         *,
         num_outputs: int = 1,
         cached_data: List[object] = None,
-        requires_grad: Optional[bool] = None
+        requires_grad: Optional[bool] = None,
     ):
         global TENSOR_COUNTER
         TENSOR_COUNTER += 1
@@ -201,7 +201,7 @@ class Tensor(Value):
         device: Optional[Device] = None,
         dtype="float32",
         requires_grad=True,
-        **kwargs
+        **kwargs,
     ):
         if isinstance(array, Tensor):
             if device is None:
@@ -219,12 +219,7 @@ class Tensor(Value):
             device = device if device else default_device()
             cached_data = Tensor._array_from_numpy(array, device=device, dtype=dtype)
 
-        self._init(
-            None,
-            [],
-            cached_data=cached_data,
-            requires_grad=requires_grad,
-        )
+        self._init(None, [], cached_data=cached_data, requires_grad=requires_grad)
 
     @staticmethod
     def _array_from_numpy(numpy_array, device, dtype):
@@ -296,7 +291,9 @@ class Tensor(Value):
         compute_gradient_of_variables(self, out_grad)
 
     def __repr__(self):
-        return "needle.Tensor(" + str(self.realize_cached_data()) + ")"
+        return (
+            "needle.Tensor(" + str(self.realize_cached_data()) + f", shape={self.shape})"
+        )
 
     def __str__(self):
         return self.realize_cached_data().__str__()
@@ -408,7 +405,7 @@ def topo_sort_dfs(node, visited, topo_order):
         if next not in visited:
             visited.append(next)
             topo_sort_dfs(next, visited, topo_order)
-    topo_order.append(node)  
+    topo_order.append(node)
 
 
 ##############################

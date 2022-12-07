@@ -16,3 +16,12 @@ Part 3: Convolutional neural network
 - When copy code from previous homework, pay special attention to each device-relevant function due to ignorance of device option in early works, since implicit data transfer is not allowed.
 - `data.Dataloader` should support `device` (and maybe also `dtype`).
 - `ndl.cuda()` backend witnesses faster training speed on `CIFAR-10` dataset than `ndl.cpu()`.
+
+Part 4: Recurrent neural network
+- In multilayer RNN, hidden state of previous layer `RNNCell[l].h` serves as input to the layer `RNNCell[l+1]`, except for the first layer which consumes word vector from dataset.
+
+Part 5: Long short-term memory network
+- Weight (and also bias) of `(i,f,g,o)` is packed into single matrix (4x of size).
+
+Part 6: Penn Treebank dataset
+- When clipping raw text to `max_lines` during `Corpus.tokenize()`, it should be **`: max_lines + 1`** in brackets rather than `lines[: max_lines]`. Otherwise, `Corpus` will miss one line and lead to wrong `train_loss` in Part 7.
