@@ -494,11 +494,13 @@ class LSTMCell(Module):
                 init.zeros(X.shape[0], self.hidden_size, device=X.device, dtype=X.dtype),
             ) * 2
         h0, c0 = h
-        out = X @ self.W_ih + h0 @ self.W_hh
+        out = ops.reshape(
+            X @ self.W_ih + h0 @ self.W_hh, (X.shape[0], 4, self.hidden_size)
+        )
         if self.has_bias:
-            out += self.bias_ih.reshape((1, 4 * self.hidden_size)).broadcast_to(out.shape)
-            out += self.bias_hh.reshape((1, 4 * self.hidden_size)).broadcast_to(out.shape)
-        out = ops.split(ops.reshape(out, (X.shape[0], 4, self.hidden_size)), 1)
+            out += self.bias_ih.reshape((1, *out.shape[1:])).broadcast_to(out.shape)
+            out += self.bias_hh.reshape((1, *out.shape[1:])).broadcast_to(out.shape)
+        out = ops.split(out, 1)
         i, f, g, o = [x(out[i]) for i, x in enumerate(self.activation)]
         c_next = f * c0 + i * g
         h_next = o * ops.tanh(c_next)
@@ -626,6 +628,149 @@ class Embedding(Module):
             device=x.device,
             dtype=x.dtype,
         )
-        return (x_one_hot @ self.weight).reshape(
-            (seq_len, batch_size, self.embedding_dim)
+        return (x_one_hot @ self.weight).reshape((*x.shape, self.embedding_dim))
+
+
+class GRUCell(Module):
+    def __init__(self, input_size, hidden_size, bias=True, device=None, dtype="float32"):
+        """
+        A gated recurrent unit (GRU) cell.
+
+        Parameters:
+        input_size - The number of expected features in the input X
+        hidden_size - The number of features in the hidden state h
+        bias - If False, then the layer does not use bias weights
+
+        Variables:
+        W_ih - The learnable input-hidden weights, of shape (input_size, 3*hidden_size).
+        W_hh - The learnable hidden-hidden weights, of shape (hidden_size, 3*hidden_size).
+        bias_ih - The learnable input-hidden bias, of shape (3*hidden_size,).
+        bias_hh - The learnable hidden-hidden bias, of shape (3*hidden_size,).
+
+        Weights and biases are initialized from U(-sqrt(k), sqrt(k)) where k = 1/hidden_size
+        """
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.has_bias = bias
+        bound = 1 / math.sqrt(hidden_size)
+        self.W_ih = Parameter(
+            init.rand(input_size, 3 * hidden_size, low=-bound, high=bound),
+            device=device,
+            dtype=dtype,
         )
+        self.W_hh = Parameter(
+            init.rand(hidden_size, 3 * hidden_size, low=-bound, high=bound),
+            device=device,
+            dtype=dtype,
+        )
+        self.bias_ih = Parameter(
+            init.rand(3 * hidden_size, low=-bound, high=bound), device=device, dtype=dtype
+        )
+        self.bias_hh = Parameter(
+            init.rand(3 * hidden_size, low=-bound, high=bound), device=device, dtype=dtype
+        )
+        self.sigmoid = Sigmoid()
+
+    def forward(self, X, h=None):
+        """
+        Inputs:
+        X of shape (bs, input_size): Tensor containing input features
+        h of shape (bs, hidden_size): Tensor containing the initial hidden state
+            for each element in the batch. Defaults to zero if not provided.
+
+        Outputs:
+        h' of shape (bs, hidden_size): Tensor contianing the next hidden state
+            for each element in the batch.
+        """
+        if h is None:
+            h = init.zeros(X.shape[0], self.hidden_size, device=X.device, dtype=X.dtype)
+        out_1 = ops.reshape(X @ self.W_ih, (X.shape[0], 3, self.hidden_size))
+        out_2 = ops.reshape(h @ self.W_hh, (X.shape[0], 3, self.hidden_size))
+        if self.has_bias:
+            out_1 += self.bias_ih.reshape((1, *out_1.shape[1:])).broadcast_to(out_1.shape)
+            out_2 += self.bias_hh.reshape((1, *out_2.shape[1:])).broadcast_to(out_2.shape)
+        out_1 = ops.split(out_1, 1)
+        out_2 = ops.split(out_2, 1)
+        z = self.sigmoid(out_1[0] + out_2[0])
+        r = self.sigmoid(out_1[1] + out_2[1])
+        n = ops.tanh(out_1[2] + r * out_2[2])
+        h_next = (1 - z) * n + z * h
+        return h_next
+
+
+class GRU(Module):
+    def __init__(
+        self,
+        input_size,
+        hidden_size,
+        num_layers=1,
+        bias=True,
+        device=None,
+        dtype="float32",
+    ):
+        """
+        Applies a multi-layer gated recurrent unit (GRU) RNN to an input sequence.
+
+        Parameters:
+        input_size - The number of expected features in the input x
+        hidden_size - The number of features in the hidden state h
+        num_layers - Number of recurrent layers.
+        bias - If False, then the layer does not use bias weights.
+
+        Variables:
+        gru_cells[k].W_ih: The learnable input-hidden weights of the k-th layer,
+            of shape (input_size, 3*hidden_size) for k=0. Otherwise the shape is
+            (hidden_size, 3*hidden_size).
+        gru_cells[k].W_hh: The learnable hidden-hidden weights of the k-th layer,
+            of shape (hidden_size, 3*hidden_size).
+        gru_cells[k].bias_ih: The learnable input-hidden bias of the k-th layer,
+            of shape (3*hidden_size,).
+        gru_cells[k].bias_hh: The learnable hidden-hidden bias of the k-th layer,
+            of shape (3*hidden_size,).
+        """
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.gru_cells = [
+            GRUCell(
+                input_size if i == 0 else hidden_size,
+                hidden_size,
+                bias,
+                device=device,
+                dtype=dtype,
+            )
+            for i in range(num_layers)
+        ]
+
+    def forward(self, X, h0=None):
+        """
+        Inputs:
+        X of shape (seq_len, bs, input_size) containing the features of the input sequence.
+        h_0 of shape (num_layers, bs, hidden_size) containing the initial
+            hidden state for each element in the batch. Defaults to zeros if not provided.
+
+        Outputs
+        output of shape (seq_len, bs, hidden_size) containing the output features
+            (h_t) from the last layer of the GRU, for each t.
+        h_n of shape (num_layers, bs, hidden_size) containing the final hidden state for each element in the batch.
+        """
+        X_split = ops.split(X, 0)
+        if h0 is None:
+            h0 = init.zeros(
+                self.num_layers,
+                X.shape[1],
+                self.hidden_size,
+                device=X.device,
+                dtype=X.dtype,
+            )
+        h_split = list(ops.split(h0, 0))
+        out = []
+        for i in range(X.shape[0]):
+            for j in range(self.num_layers):
+                h_split[j] = self.gru_cells[j](
+                    X_split[i] if j == 0 else h_split[j - 1], h_split[j]
+                )
+            out += [h_split[-1]]
+        return ops.stack(out, 0), ops.stack(h_split, 0)

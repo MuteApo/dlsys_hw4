@@ -96,6 +96,10 @@ class LanguageModel(nn.Module):
             self.seq_model = nn.LSTM(
                 embedding_size, hidden_size, num_layers, device=device, dtype=dtype
             )
+        elif seq_model == "gru":
+            self.seq_model = nn.GRU(
+                embedding_size, hidden_size, num_layers, device=device, dtype=dtype
+            )
         self.linear = nn.Linear(hidden_size, output_size, device=device, dtype=dtype)
 
     def forward(self, x, h=None):
